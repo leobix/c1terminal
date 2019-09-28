@@ -39,11 +39,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         PING = config["unitInformation"][3]["shorthand"]
         EMP = config["unitInformation"][4]["shorthand"]
         SCRAMBLER = config["unitInformation"][5]["shorthand"]
-        # This is a good place to do initial setup
-        self.scored_on_locations = []
         self.cores = 0
         self.bits = 0
-
+        self.scored_on_locations = dict()
+        self.damaged_on_locations = dict()
+    
     def on_turn(self, turn_state):
         """
         This function is called every turn with the game state wrapper as
@@ -52,6 +52,16 @@ class AlgoStrategy(gamelib.AlgoCore):
         unit deployments, and transmitting your intended deployments to the
         game engine.
         """
+        if not len(self.scored_on_locations) == 0:
+            for k in self.scored_on_locations:
+                gamelib.debug_write(f'My edge at {k} for {self.scored_on_locations[k]} dmg')
+            self.scored_on_locations = dict()
+        if not len(self.damaged_on_locations) == 0:
+            for k in self.damaged_on_locations:
+                dmg = self.damaged_on_locations[k]
+                if dmg > 0:
+                    gamelib.debug_write(f'My wall at {k} for {dmg} dmg')
+            #self.damaged_on_locations = dict()
         game_state = gamelib.GameState(self.config, turn_state)
         #gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
         #game_state.suppress_warnings(True)  #Comment or remove this line to enable warnings.
@@ -77,10 +87,90 @@ class AlgoStrategy(gamelib.AlgoCore):
         return cheapest_unit, cost
 
     def basic_strategy(self, game_state):
-        self.build_first_line_cheapest_wall(game_state)
-        self.build_basic_attackers(game_state)
+        #self.build_first_line_cheapest_wall(game_state)
+        #self.build_basic_attackers(game_state)
+        if game_state.turn_number >= 1:
+            self.replace_defense(game_state)
+        self.basic_defense(game_state)
+        self.advanced_defense(game_state)
         self.spawn_least_damage(game_state)
-        return
+
+    def replace_defense(self, game_state):
+        # Replace destructor
+        for k in self.damaged_on_locations:
+            location = [k // 100, k % 100]
+            if game_state.contains_stationary_unit(location):
+                unit = game_state.contains_stationary_unit(location)
+                if (not unit.unit_type == DESTRUCTOR and unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 3 * 2 ) or unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 2:
+                    game_state.attempt_remove(location)
+            else:
+                self.build_wall(game_state, DESTRUCTOR, location)
+
+    def basic_defense(self, game_state):
+        # basic left and right
+        destructors_points = [[0, 13], [7, 11]]
+        filters_points = [[1, 13], [2, 13], [3, 12], [4, 11], [5, 11], [6, 11]]
+        self.defense_level(game_state, destructors_points, filters_points)
+        # basic middle
+        destructors_points = [[10, 11], [12, 11]]
+        filters_points = [[8, 11], [9, 11], [11, 11]]
+        self.defense_level(game_state, destructors_points, filters_points)
+
+    def reverse_locations(self, locations):
+        rlocations = []
+        for location in locations:
+            rlocations.append([27 - location[0], location[1]])
+        return rlocations
+    def encodelocation(self, location):
+        return location[0] * 100 + location[1]
+
+    def decodelocation(self, key):
+        return [key // 100, key % 100]
+
+    def eculid_distance(self, game_state, key1, key2):
+        loc1 = self.decodelocation(key1)
+        loc2 = self.decodelocation(key2)
+        return game_state.game_map.distance_between_locations(loc1, loc2)
+
+    def advanced_defense(self, game_state):
+        destructors = [[3, 13], [1, 12], [2, 12], [2, 11], [3, 11], [5, 9], [6, 9], [7, 9], [8, 9], [9, 9], [10, 9], [11, 9], [12, 9]]
+        reversed_destructors = self.reverse_locations(destructors)
+        all_locations = destructors + reversed_destructors
+        dictionary = dict()
+        for location in all_locations:
+            dictionary[self.encodelocation(location)] = 999999
+
+        for k in self.scored_on_locations:
+            for l in all_locations:
+                dictionary[l] = min(self.eculid_distance(game_state, l, k), dictionary[l])
+        
+        sol = sorted(self.scored_on_locations, key=self.scored_on_locations.get)
+        spawn_locations = []
+        for location in sol:
+            spawn.append(self.decodelocation(location))
+        self.build_group_walls(game_state, DESTRUCTOR, spawn_locations)
+
+
+    def defense_level(self, game_state, destructors_points, filters_points):
+        self.build_group_walls(game_state, DESTRUCTOR, destructors_points)
+        self.build_group_walls(game_state, FILTER, filters_points)  
+        self.build_group_walls(game_state, DESTRUCTOR, destructors_points, True)
+        self.build_group_walls(game_state, FILTER, filters_points, True)
+               
+    def build_group_walls(self, game_state, unit, locations, reverse=False):
+        num_success = 0
+        wall_locations = []
+        for location in locations:
+            tmp = location
+            if reverse:
+                tmp[0] = 27 - tmp[0]
+            num_success += self.build_wall(game_state, unit, tmp)    
+            if num_success > 0:
+                wall_locations.append(tmp)
+
+        if num_success > 0:
+            gamelib.debug_write(f'Successfully spawn {DESTRUCTOR} {num_success} times')
+            gamelib.debug_write(f'Locations are: {wall_locations}')
 
     def spawn_least_damage(self, game_state):
         friendly_edges = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT) + game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
@@ -89,7 +179,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         num_spawn = self.bits // game_state.type_cost(PING)
         if num_spawn > 10:
             num_spawn = min(20, num_spawn)
-            game_state.attempt_spawn(PING, best_location)
+            game_state.attempt_spawn(PING, best_location, int(num_spawn))
 
     def build_basic_attackers(self, game_state):
         wall_locations = [0, 12, 15, 27]
@@ -101,34 +191,24 @@ class AlgoStrategy(gamelib.AlgoCore):
         while not q.empty():
             priority_locations.append(q.get()[1])
         #gamelib.debug_write(f'heap queue: {priority_locations}')
-        num_success = 0
+        locations = []
         for i in priority_locations:
             y = 10 # good bottom level for destructor
             if i >=  25 or i <= 2:
                 y = 13 # toppest level for destructor
             location = [i, y]
-            num_success += self.build_wall(game_state, DESTRUCTOR, location)
-            if num_success > 0:
-                wall_locations.append(location)
-
-        if num_success > 0:
-            gamelib.debug_write(f'Successfully spawn {DESTRUCTOR} {num_success} times')
-            gamelib.debug_write(f'Locations are: {wall_locations}')
+            locations.append(location)
+        self.build_group_walls(game_state, DESTRUCTOR, locations)
 
     def build_first_line_cheapest_wall(self, game_state):
         basic_wall, cost = self.get_cheapest_wall(game_state)
-        wall_locations = []
-        num_success = 0
+        locations = []
         for i in range(0, 27):
             if i >= 12 and i <= 15:
                 continue
             location = [i, 11]
-            num_success += self.build_wall(game_state, basic_wall, location)
-            if num_success > 0:
-                wall_locations.append(location)
-        if num_success > 0:
-            gamelib.debug_write(f'Successfully spawn {basic_wall} {num_success} times')
-            gamelib.debug_write(f'Locations are: {wall_locations}')
+            locations.append(location)
+        self.build_group_walls(game_state, basic_wall, locations)
 
     def build_wall(self, game_state, unit, location):
         if not game_state.contains_stationary_unit(location) and game_state.game_map.in_arena_bounds(location):
@@ -287,16 +367,37 @@ class AlgoStrategy(gamelib.AlgoCore):
         state = json.loads(turn_string)
         events = state["events"]
         breaches = events["breach"]
+        damages = events["damage"]
+        self.event_collection(breaches, self.scored_on_locations)
+        self.event_collection(damages, self.damaged_on_locations, True)
+        '''
         for breach in breaches:
             location = breach[0]
             unit_owner_self = True if breach[4] == 1 else False
             # When parsing the frame data directly, 
             # 1 is integer for yourself, 2 is opponent (StarterKit code uses 0, 1 as player_index instead)
             if not unit_owner_self:
-                gamelib.debug_write("Got scored on at: {}".format(location))
-                self.scored_on_locations.append(location)
-                gamelib.debug_write("All locations: {}".format(self.scored_on_locations))
-
+                #gamelib.debug_write("Got scored on at: {}".format(location))
+                location = location[0] * 100 + location[1]
+                if not location in self.scored_on_locations:
+                    self.scored_on_locations[location] = breach[2]
+                else:
+                    self.scored_on_locations[location] += breach[2]
+        '''
+        
+    def event_collection(self, events, dictionary, is_wall = False):
+         for breach in events:
+            location = breach[0]
+            unit_owner_self = True if breach[4] == 1 else False
+            # When parsing the frame data directly, 
+            # 1 is integer for yourself, 2 is opponent (StarterKit code uses 0, 1 as player_index instead)
+            if (not unit_owner_self and not is_wall) or (is_wall and unit_owner_self and breach[2] in [0, 1, 2]):
+                #gamelib.debug_write("Got scored on at: {}".format(location))
+                location = location[0] * 100 + location[1]
+                if not location in dictionary:
+                    dictionary[location] = breach[2]
+                else:
+                    dictionary[location] += breach[2]       
     def distance_x(self, x1, x2):
         return abs(x1 - x2)
 
