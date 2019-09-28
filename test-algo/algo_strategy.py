@@ -55,7 +55,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         if not len(self.scored_on_locations) == 0:
             for k in self.scored_on_locations:
                 gamelib.debug_write(f'My edge at {k} for {self.scored_on_locations[k]} dmg')
-            self.scored_on_locations = dict()
+            #self.scored_on_locations = dict()
         if not len(self.damaged_on_locations) == 0:
             for k in self.damaged_on_locations:
                 dmg = self.damaged_on_locations[k]
@@ -93,6 +93,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.replace_defense(game_state)
         self.basic_defense(game_state)
         self.advanced_defense(game_state)
+        self.advanced_emp(game_state)
         self.spawn_least_damage(game_state)
 
     def replace_defense(self, game_state):
@@ -107,14 +108,21 @@ class AlgoStrategy(gamelib.AlgoCore):
                 self.build_wall(game_state, DESTRUCTOR, location)
 
     def basic_defense(self, game_state):
-        # basic left and right
-        destructors_points = [[0, 13], [7, 11]]
-        filters_points = [[1, 13], [2, 13], [3, 12], [4, 11], [5, 11], [6, 11]]
-        self.defense_level(game_state, destructors_points, filters_points)
         # basic middle
         destructors_points = [[10, 11], [12, 11]]
         filters_points = [[8, 11], [9, 11], [11, 11]]
         self.defense_level(game_state, destructors_points, filters_points)
+        # basic left and right
+        destructors_points = [[0, 13], [7, 11], [1, 12], [2, 12], [3, 12]]
+        filters_points = [[4, 11], [5, 11], [6, 11]]
+        self.defense_level(game_state, destructors_points, filters_points)
+    def basic_shield(self, game_state, reverse=False):
+        locations = []
+        for i in range(5, 14):
+            locations.append([i, 8])
+        self.build_group_walls(game_state, ENCRYPTOR, locations, reverse)
+        self.build_group_walls(game_state, ENCRYPTOR, locations, not reverse)
+        
 
     def reverse_locations(self, locations):
         rlocations = []
@@ -133,7 +141,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         return game_state.game_map.distance_between_locations(loc1, loc2)
 
     def advanced_defense(self, game_state):
-        destructors = [[3, 13], [1, 12], [2, 12], [2, 11], [3, 11], [5, 9], [6, 9], [7, 9], [8, 9], [9, 9], [10, 9], [11, 9], [12, 9]]
+        destructors = [[3, 13], [1, 12], [2, 12], [2, 11], [3, 11], [4, 9], [5, 9], [6, 9], [7, 9], [8, 9], [9, 9], [10, 9], [11, 9], [12, 9]]
         reversed_destructors = self.reverse_locations(destructors)
         all_locations = destructors + reversed_destructors
         dictionary = dict()
@@ -142,20 +150,24 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         for k in self.scored_on_locations:
             for l in all_locations:
-                dictionary[l] = min(self.eculid_distance(game_state, l, k), dictionary[l])
+                hashkey = self.encodelocation(l)
+                dictionary[hashkey] = min(self.eculid_distance(game_state, hashkey, k), dictionary[hashkey])
         
-        sol = sorted(self.scored_on_locations, key=self.scored_on_locations.get)
+        sol = sorted(dictionary, key=dictionary.get)
+
         spawn_locations = []
         for location in sol:
-            spawn.append(self.decodelocation(location))
+            spawn_locations.append(self.decodelocation(location))
         self.build_group_walls(game_state, DESTRUCTOR, spawn_locations)
 
 
     def defense_level(self, game_state, destructors_points, filters_points):
+        basic_wall, cost = self.get_cheapest_wall(game_state)
         self.build_group_walls(game_state, DESTRUCTOR, destructors_points)
-        self.build_group_walls(game_state, FILTER, filters_points)  
         self.build_group_walls(game_state, DESTRUCTOR, destructors_points, True)
-        self.build_group_walls(game_state, FILTER, filters_points, True)
+
+        self.build_group_walls(game_state, DESTRUCTOR, filters_points)  
+        self.build_group_walls(game_state, DESTRUCTOR, filters_points, True)
                
     def build_group_walls(self, game_state, unit, locations, reverse=False):
         num_success = 0
@@ -173,13 +185,37 @@ class AlgoStrategy(gamelib.AlgoCore):
             gamelib.debug_write(f'Locations are: {wall_locations}')
 
     def spawn_least_damage(self, game_state):
-        friendly_edges = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT) + game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
-        deploy_locations = self.filter_blocked_locations(friendly_edges, game_state)
-        best_location = self.least_damage_spawn_location(game_state, deploy_locations)
         num_spawn = self.bits // game_state.type_cost(PING)
         if num_spawn > 10:
-            num_spawn = min(20, num_spawn)
-            game_state.attempt_spawn(PING, best_location, int(num_spawn))
+            best_location = self.deploy_minions(game_state, PING)
+            if best_location[0] <= 13: 
+                self.basic_shield(game_state)
+            else:
+                self.basic_shield(game_state, True)
+
+    def advanced_emp(self, game_state):
+        if self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[14]) > 10:
+            self.deploy_minions(game_state, EMP)        
+        elif self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[15, 16]) > 10:
+            self.emp_first_wall(game_state)
+            self.deploy_minions(game_state, EMP)   
+               
+    def emp_first_wall(self, game_state, reversed=False):
+        locations = []
+        for i in range(13, 4, -1):
+            locations.append([i, 13])
+        self.build_group_walls(game_state, ENCRYPTOR, locations, reversed)
+        self.build_group_walls(game_state, ENCRYPTOR, locations, not reversed)
+        game_state.attempt_remove(locations)
+
+    def deploy_minions(self, game_state, unit):
+        friendly_edges = [[3, 10], [24, 10]]
+        deploy_locations = self.filter_blocked_locations(friendly_edges, game_state)
+        best_location = self.least_damage_spawn_location(game_state, deploy_locations)
+        num_spawn = self.bits // game_state.type_cost(unit)
+        num_spawn = min(20, num_spawn)
+        self.bits -= game_state.type_cost(unit) * game_state.attempt_spawn(unit, best_location, int(num_spawn))  
+        return best_location
 
     def build_basic_attackers(self, game_state):
         wall_locations = [0, 12, 15, 27]
