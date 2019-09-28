@@ -4,7 +4,7 @@ import math
 import warnings
 from sys import maxsize
 import json
-
+import queue as Q
 
 """
 Most of the algo code you write will be in this file unless you create new
@@ -41,9 +41,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         SCRAMBLER = config["unitInformation"][5]["shorthand"]
         # This is a good place to do initial setup
         self.scored_on_locations = []
-
-    
-        
+        self.cores = 0
+        self.bits = 0
 
     def on_turn(self, turn_state):
         """
@@ -54,19 +53,90 @@ class AlgoStrategy(gamelib.AlgoCore):
         game engine.
         """
         game_state = gamelib.GameState(self.config, turn_state)
-        gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
-        game_state.suppress_warnings(True)  #Comment or remove this line to enable warnings.
-
-        self.starter_strategy(game_state)
-
+        #gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
+        #game_state.suppress_warnings(True)  #Comment or remove this line to enable warnings.
+        self.cores = game_state.get_resource(game_state.CORES)
+        self.bits = game_state.get_resource(game_state.BITS)
+        #self.starter_strategy(game_state)
+        self.basic_strategy(game_state)
         game_state.submit_turn()
-
 
     """
     NOTE: All the methods after this point are part of the sample starter-algo
     strategy and can safely be replaced for your custom algo.
     """
+    def get_cheapest_wall(self, game_state):
+        stationary_units = [FILTER, DESTRUCTOR, ENCRYPTOR]
+        cheapest_unit = FILTER
+        cost = 0
+        for unit in stationary_units:
+            unit_class = gamelib.GameUnit(unit, game_state.config)
+            if unit_class.cost < gamelib.GameUnit(cheapest_unit, game_state.config).cost:
+                cheapest_unit = unit
+                cost = unit_class.cost
+        return cheapest_unit, cost
 
+    def basic_strategy(self, game_state):
+        self.build_first_line_cheapest_wall(game_state)
+        self.build_basic_attackers(game_state)
+        self.spawn_least_damage(game_state)
+        return
+
+    def spawn_least_damage(self, game_state):
+        friendly_edges = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT) + game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
+        deploy_locations = self.filter_blocked_locations(friendly_edges, game_state)
+        best_location = self.least_damage_spawn_location(game_state, deploy_locations)
+        num_spawn = self.bits // game_state.type_cost(PING)
+        if num_spawn > 10:
+            num_spawn = min(20, num_spawn)
+            game_state.attempt_spawn(PING, best_location)
+
+    def build_basic_attackers(self, game_state):
+        wall_locations = [0, 12, 15, 27]
+        q = Q.PriorityQueue()
+        for i in wall_locations:
+            q.put((self.distance_x(i, 13.5), i))
+
+        priority_locations = []
+        while not q.empty():
+            priority_locations.append(q.get()[1])
+        #gamelib.debug_write(f'heap queue: {priority_locations}')
+        num_success = 0
+        for i in priority_locations:
+            y = 10 # good bottom level for destructor
+            if i >=  25 or i <= 2:
+                y = 13 # toppest level for destructor
+            location = [i, y]
+            num_success += self.build_wall(game_state, DESTRUCTOR, location)
+            if num_success > 0:
+                wall_locations.append(location)
+
+        if num_success > 0:
+            gamelib.debug_write(f'Successfully spawn {DESTRUCTOR} {num_success} times')
+            gamelib.debug_write(f'Locations are: {wall_locations}')
+
+    def build_first_line_cheapest_wall(self, game_state):
+        basic_wall, cost = self.get_cheapest_wall(game_state)
+        wall_locations = []
+        num_success = 0
+        for i in range(0, 27):
+            if i >= 12 and i <= 15:
+                continue
+            location = [i, 11]
+            num_success += self.build_wall(game_state, basic_wall, location)
+            if num_success > 0:
+                wall_locations.append(location)
+        if num_success > 0:
+            gamelib.debug_write(f'Successfully spawn {basic_wall} {num_success} times')
+            gamelib.debug_write(f'Locations are: {wall_locations}')
+
+    def build_wall(self, game_state, unit, location):
+        if not game_state.contains_stationary_unit(location) and game_state.game_map.in_arena_bounds(location):
+            if game_state.type_cost(unit) <= self.cores:
+                success = game_state.attempt_spawn(unit, location)
+                self.cores -= success * game_state.type_cost(unit)
+                return success
+        return 0
 
     def starter_strategy(self, game_state):
         """
@@ -160,12 +230,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         # First let's figure out the cheapest unit
         # We could just check the game rules, but this demonstrates how to use the GameUnit class
-        stationary_units = [FILTER, DESTRUCTOR, ENCRYPTOR]
-        cheapest_unit = FILTER
-        for unit in stationary_units:
-            unit_class = gamelib.GameUnit(unit, game_state.config)
-            if unit_class.cost < gamelib.GameUnit(cheapest_unit, game_state.config).cost:
-                cheapest_unit = unit
+        cheapest_unit, cost = self.get_cheapest_wall(game_state)
 
         # Now let's build out a line of stationary units. This will prevent our EMPs from running into the enemy base.
         # Instead they will stay at the perfect distance to attack the front two rows of the enemy base.
@@ -232,6 +297,8 @@ class AlgoStrategy(gamelib.AlgoCore):
                 self.scored_on_locations.append(location)
                 gamelib.debug_write("All locations: {}".format(self.scored_on_locations))
 
+    def distance_x(self, x1, x2):
+        return abs(x1 - x2)
 
 if __name__ == "__main__":
     algo = AlgoStrategy()
