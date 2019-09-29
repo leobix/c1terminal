@@ -43,6 +43,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         self.bits = 0
         self.scored_on_locations = dict()
         self.damaged_on_locations = dict()
+        self.sp = False
     
     def on_turn(self, turn_state):
         """
@@ -91,18 +92,88 @@ class AlgoStrategy(gamelib.AlgoCore):
         #self.build_basic_attackers(game_state)
         if game_state.turn_number >= 1:
             self.replace_defense(game_state)
-        self.basic_defense(game_state)
-        self.advanced_defense(game_state)
-        self.advanced_emp(game_state)
-        self.spawn_least_damage(game_state)
+        #self.basic_defense(game_state)
+        #self.advanced_defense(game_state)
+        #self.scrambler_stratgy(game_state)
+        #self.advanced_emp(game_state)
+        #self.spawn_least_damage(game_state)
+        #self.t2_attack(game_state)
+        #self.t2_defense(game_state)
+        if game_state.turn_number > 10 and game_state.enemy_health > game_state.my_health or self.sp:
+            self.special(game_state)
+            self.replace_defense(game_state)
+            self.sp = True
+            return 
 
+        if game_state.turn_number == 0:
+            self.first_scrambler(game_state)
+        else:
+            self.scrambler_stratgy(game_state)
+            self.spawn_least_damage(game_state)
+            if self.bits > 10:
+                self.emp_new(game_state)
+            self.defense(game_state)
+
+
+    def first_scrambler(self, game_state):  
+        locations = [[5, 8], [10, 3], [17, 3], [22, 8]]
+        game_state.attempt_spawn(SCRAMBLER, locations)
+
+    def defense(self, game_state):
+        destructors_points = [[5, 10], [10, 10], [14, 10], [17, 10], [22, 10]]
+        encryptors_points = [[10, 8]]
+        filters_points = [[0, 13], [27, 13], [1, 12], [26, 12], [2, 11], [3, 11], [4, 11], [8, 11], [19, 11], [23, 11], [24, 11], [25, 11], [13, 10]]
+
+        pink_destructors_points = [[5, 11], [22, 11], [5, 10], [10, 10], [14, 10], [17, 10], [22, 10], [8, 9], [19, 9], [8, 8]]
+        pink_encryptors_points = [[10, 8], [11, 8], [17, 8]]
+        pink_filters_points = [[0, 13], [27, 13], [1, 12], [26, 12], [2, 11], [3, 11], [4, 11], [8, 11], [19, 11], [23, 11], [24, 11], [25, 11], [13, 10], [21, 10]]
+        blue_encryptors_points = [[12, 8], [14, 8], [15, 8], [16, 8]]
+        blue_filters_points = [[10, 12], [17, 12], [22, 12], [20, 11], [11, 10]]
+        teal_destructors_points = [[12, 10], [16, 10], [7, 8], [9, 8], [18, 8], [19, 8], [20, 8]]
+        teal_filters_points = [[5, 12], [11, 12], [12, 12], [15, 12], [16, 12], [7, 11], [6, 10], [15, 10]]
+        yellow_encryptors_points = [[18, 13], [9, 12], [13, 12], [14, 12], [11, 6], [12, 6], [14, 6], [15, 6], [11, 5], [12, 5], [14, 5], [15, 5]]
+        orange_encryptors_points = [[11, 4], [12, 4], [14, 4], [15, 4], [12, 3], [14, 3]]
+        red_orange_encryptors_points = [[9, 6], [10, 6], [16, 6], [17, 6]]
+        
+        self.build_group_walls(game_state, FILTER, filters_points)
+        self.build_group_walls(game_state, DESTRUCTOR, destructors_points)
+        self.build_group_walls(game_state, ENCRYPTOR, encryptors_points)
+        
+        self.build_group_walls(game_state, FILTER, pink_filters_points)
+        self.build_group_walls(game_state, DESTRUCTOR, pink_destructors_points)
+        self.build_group_walls(game_state, ENCRYPTOR, pink_encryptors_points)
+
+        self.build_group_walls(game_state, ENCRYPTOR, blue_encryptors_points)
+        self.build_group_walls(game_state, FILTER, blue_filters_points)
+
+        self.build_group_walls(game_state, DESTRUCTOR, teal_destructors_points)
+        self.build_group_walls(game_state, FILTER, teal_filters_points)
+
+        self.build_group_walls(game_state, ENCRYPTOR, yellow_encryptors_points)
+        self.build_group_walls(game_state, ENCRYPTOR, orange_encryptors_points)
+        self.build_group_walls(game_state, ENCRYPTOR, red_orange_encryptors_points)
+
+
+    def scrambler_stratgy(self, game_state):
+        sol = sorted(self.scored_on_locations, key=self.scored_on_locations.get, reverse=True)
+        rand = random.randint(1, 2)
+        k = 0
+        for i in sol:
+            if self.scored_on_locations == 0:
+                continue
+            self.all_in(game_state, SCRAMBLER, [i // 100, i % 100], rand)
+            self.scored_on_locations[i] //= 2
+            k += 1
+            if k > 1:
+                break
+            
     def replace_defense(self, game_state):
         # Replace destructor
         for k in self.damaged_on_locations:
             location = [k // 100, k % 100]
             if game_state.contains_stationary_unit(location):
                 unit = game_state.contains_stationary_unit(location)
-                if (not unit.unit_type == DESTRUCTOR and unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 3 * 2 ) or unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 2:
+                if unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 4:
                     game_state.attempt_remove(location)
             else:
                 self.build_wall(game_state, DESTRUCTOR, location)
@@ -110,19 +181,58 @@ class AlgoStrategy(gamelib.AlgoCore):
     def basic_defense(self, game_state):
         # basic middle
         destructors_points = [[10, 11], [12, 11]]
-        filters_points = [[8, 11], [9, 11], [11, 11]]
+        filters_points = [[10, 10], [11, 10], [12, 10], [13, 10]]
         self.defense_level(game_state, destructors_points, filters_points)
         # basic left and right
-        destructors_points = [[0, 13], [7, 11], [1, 12], [2, 12], [3, 12]]
-        filters_points = [[4, 11], [5, 11], [6, 11]]
+        destructors_points = [[0, 13], [7, 11], [1, 12], [2, 11], [3, 11]]
+        filters_points = [[4, 11], [5, 11], [6, 11], [8, 9], [9, 8], [8, 8]]
         self.defense_level(game_state, destructors_points, filters_points)
+
     def basic_shield(self, game_state, reverse=False):
         locations = []
         for i in range(5, 14):
             locations.append([i, 8])
         self.build_group_walls(game_state, ENCRYPTOR, locations, reverse)
         self.build_group_walls(game_state, ENCRYPTOR, locations, not reverse)
-        
+
+    def t2_attack(self, game_state):
+        rand = random.randint(10, 25)
+        if self.bits >= rand:
+            self.all_in(game_state, PING)
+
+    def t2_defense(self,game_state):
+        locations = []
+        for i in range(0, 28, 3):
+            if i == 13 or i == 14:
+                continue
+            locations.append([i, 13])
+        self.build_group_walls(game_state, DESTRUCTOR, locations)
+
+        reverse = False
+        sol = sorted(self.scored_on_locations, key=self.scored_on_locations.get, reverse=True)
+        if len(sol) > 0:
+            if sol[0] // 100 > 13:
+                reverse = True
+
+        locations = []
+        for i in range(1, 25, 3):
+            locations.append([i, 12])
+            locations.append([i+1, 12])
+            if self.cores - len(locations) * 2  <= 14 and game_state.turn_number < 5:
+                break
+        self.build_group_walls(game_state, DESTRUCTOR, locations, reverse)
+
+        locations = []
+        for i in range(5, 20):
+            locations.append([i, 8])
+            locations.append([i+2, 6])
+        self.build_group_walls(game_state, ENCRYPTOR, locations)
+
+        locations = []
+        for i in range(4, 20):
+            locations.append([i, 9])
+            locations.append([i+4, 5])
+        self.build_group_walls(game_state, ENCRYPTOR, locations)
 
     def reverse_locations(self, locations):
         rlocations = []
@@ -188,28 +298,73 @@ class AlgoStrategy(gamelib.AlgoCore):
         num_spawn = self.bits // game_state.type_cost(PING)
         if num_spawn > 10:
             best_location = self.deploy_minions(game_state, PING)
-            if best_location[0] <= 13: 
-                self.basic_shield(game_state)
-            else:
-                self.basic_shield(game_state, True)
+            #if best_location[0] <= 13: 
+                #self.basic_shield(game_state)
+            #else:
+                #self.basic_shield(game_state, True)
 
     def advanced_emp(self, game_state):
-        if self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[14]) > 10:
-            self.deploy_minions(game_state, EMP)        
-        elif self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[15, 16]) > 10:
+        if self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[14]) > 10  :
+            self.deploy_minions(game_state, EMP, [[2, 11], [25, 11]])        
+        elif self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[15, 16]) > 15:
             self.emp_first_wall(game_state)
-            self.deploy_minions(game_state, EMP)   
-               
+            self.deploy_minions(game_state, EMP, [[2, 11], [25, 11]])   
+
     def emp_first_wall(self, game_state, reversed=False):
         locations = []
-        for i in range(13, 4, -1):
+        for i in range(3, 14, -1):
             locations.append([i, 13])
-        self.build_group_walls(game_state, ENCRYPTOR, locations, reversed)
-        self.build_group_walls(game_state, ENCRYPTOR, locations, not reversed)
-        game_state.attempt_remove(locations)
+        self.build_group_walls(game_state, FILTER, locations, reversed)
+        self.build_group_walls(game_state, FILTER, locations, not reversed)
+        #game_state.attempt_remove(locations)
+    def all_in(self, game_state, unit, location=[6, 7], limit=1000):
+        num_unit = self.bits // game_state.type_cost(unit)
+        num_unit = min(limit, num_unit)
+        game_state.attempt_spawn(unit, location, int(num_unit))
+        self.bits -= num_unit * game_state.type_cost(unit)
 
-    def deploy_minions(self, game_state, unit):
-        friendly_edges = [[3, 10], [24, 10]]
+
+    def special(self, game_state):
+        pink_encryptors_points = [[3, 12], [2, 11], [3, 11], [3, 10], [4, 10], [4, 9], [5, 9], [5, 8], [6, 8], [6, 7], [7, 7], [7, 6], [8, 6], [8, 5], [9, 5], [9, 4], [10, 4], [10, 3], [11, 3], [11, 2], [12, 2], [12, 1], [13, 1], [13, 0]]
+        purple_encryptors_points = [[4, 11], [5, 10], [6, 9], [7, 8], [8, 7], [9, 6], [10, 5], [11, 4], [12, 3], [13, 2], [14, 1]]
+        light_blue_encryptors_points = [[5, 11], [6, 10], [7, 9], [8, 8], [9, 7], [10, 6], [11, 5], [12, 4], [13, 3], [14, 2], [15, 1]]
+        ping_spawn_location_options = [[13, 0], [14, 0]]
+        destructor_locations = [[0, 13], [1, 13], [2, 13], [1, 12], [2, 12]]
+
+        best_location = self.least_damage_spawn_location(game_state, ping_spawn_location_options)
+        if best_location[0] <= 13:
+            pink_encryptors_points = self.reverse_locations(pink_encryptors_points)
+            purple_encryptors_points = self.reverse_locations(purple_encryptors_points)
+            light_blue_encryptors_points = self.reverse_locations(light_blue_encryptors_points)
+            destructor_locations = self.reverse_locations(destructor_locations)
+
+        for location in light_blue_encryptors_points:
+            if game_state.contains_stationary_unit(location):
+                unit = game_state.contains_stationary_unit(location)
+                if not unit.unit_type == ENCRYPTOR:
+                    game_state.attempt_remove(location) 
+        for location in light_blue_encryptors_points:
+            if game_state.contains_stationary_unit(location):
+                unit = game_state.contains_stationary_unit(location)
+                if not unit.unit_type == ENCRYPTOR:
+                    game_state.attempt_remove(location) 
+        for location in pink_encryptors_points:
+            if game_state.contains_stationary_unit(location):
+                unit = game_state.contains_stationary_unit(location)
+                game_state.attempt_remove(location) 
+        self.build_group_walls(game_state, DESTRUCTOR, destructor_locations)        
+        self.build_group_walls(game_state, FILTER, purple_encryptors_points)
+        self.build_group_walls(game_state, ENCRYPTOR, light_blue_encryptors_points)
+        if self.bits > 20:
+            if best_location[0] <= 13:
+                self.all_in(game_state, SCRAMBLER, [5, 8], 1)
+            else:
+                self.all_in(game_state, SCRAMBLER, [27 - 5, 8], 1)
+            self.all_in(game_state, SCRAMBLER, [5, 8], 1)
+            self.all_in(game_state, EMP, best_location, 2)
+            self.all_in(game_state, PING, best_location)
+
+    def deploy_minions(self, game_state, unit, friendly_edges = [[13, 0], [14, 0], [12, 1], [15, 1]]):
         deploy_locations = self.filter_blocked_locations(friendly_edges, game_state)
         best_location = self.least_damage_spawn_location(game_state, deploy_locations)
         num_spawn = self.bits // game_state.type_cost(unit)
@@ -434,9 +589,39 @@ class AlgoStrategy(gamelib.AlgoCore):
                     dictionary[location] = breach[2]
                 else:
                     dictionary[location] += breach[2]       
+
     def distance_x(self, x1, x2):
         return abs(x1 - x2)
 
+    def emp_new(self, game_state):
+        purple_filters_points = [[11, 2], [16, 2], [12, 1], [15, 1], [13, 0], [14, 0]]
+        best, points = self.most_cores_spawn_location(game_state, purple_filters_points)
+        gamelib.debug_write(f'{best}')
+        self.all_in(game_state, EMP, best, 3)
+
+    def most_cores_spawn_location(self, game_state, location_options):
+        """
+        This function will help us guess which location is the safest to spawn moving units from.
+        It gets the path the unit will take then checks locations on that path to
+        estimate the path's damage risk.
+        """
+        damages = []
+        # Get the damage estimate each path will take
+        for location in location_options:
+            path = game_state.find_path_to_edge(location)
+            damage = 0
+            if len(path) < 5:
+                continue
+            for path_location in path:
+                # Get number of enemy destructors that can attack the final location and multiply by destructor damage
+                #damage += len(game_state.get_attackers(path_location, 0)) * gamelib.GameUnit(DESTRUCTOR, game_state.config).damage
+                damage -= len(game_state.get_shielders(path_location, 0)) * gamelib.GameUnit(ENCRYPTOR, game_state.config).stability
+                #damage -= len(game_state.get_walls(path_location, 0)) * gamelib.GameUnit(FILTER, game_state.config).stability
+            damages.append(damage)
+        # Now just return the location that takes the least damage
+        if len(damages) > 0:
+            gamelib.debug_write(f'Location for EMP {location_options[damages.index(min(damages))]} will get {min(damages)} points')
+        return location_options[damages.index(min(damages))], min(damages)
 if __name__ == "__main__":
     algo = AlgoStrategy()
     algo.start()
