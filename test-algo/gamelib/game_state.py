@@ -355,8 +355,8 @@ class GameState:
                 x, y = map(int, location)
                 self._build_stack.append((REMOVE, x, y))
                 removed_units += 1
-            else:
-                self.warn("Could not remove a unit from {}. Location has no firewall or is enemy territory.".format(location))
+            #else:
+                #self.warn("Could not remove a unit from {}. Location has no firewall or is enemy territory.".format(location))
         return removed_units
 
     def get_target_edge(self, start_location):
@@ -406,7 +406,7 @@ class GameState:
             
         """
         if not self.game_map.in_arena_bounds(location):
-            self.warn('Checked for stationary unit outside of arena bounds')
+            #self.warn('Checked for stationary unit outside of arena bounds')
             return False
         x, y = map(int, location)
         for unit in self.game_map[x,y]:
@@ -510,6 +510,34 @@ class GameState:
                     target_y = unit_y
                     target_x_distance = unit_x_distance
         return target
+
+    def get_shielders(self, location, player_index):
+        """Gets the destructors threatening a given location
+
+        Args:
+            * location: The location of a hypothetical defender
+            * player_index: The index corresponding to the defending player, 0 for you 1 for the enemy
+
+        Returns:
+            A list of destructors that would attack a unit controlled by the given player at the given location
+
+        """
+
+        if not player_index == 0 and not player_index == 1:
+            self._invalid_player_index(player_index)
+        if not self.game_map.in_arena_bounds(location):
+            self.warn("Location {} is not in the arena bounds.".format(location))
+
+        attackers = []
+        """
+        Get locations in the range of DESTRUCTOR units
+        """
+        possible_locations= self.game_map.get_locations_in_range(location, self.config["unitInformation"][UNIT_TYPE_TO_INDEX[EMP]]["range"])
+        for location in possible_locations:
+            for unit in self.game_map[location]:
+                if unit.unit_type == ENCRYPTOR and unit.player_index != player_index:
+                    attackers.append(unit)
+        return attackers
 
     def get_attackers(self, location, player_index):
         """Gets the destructors threatening a given location
