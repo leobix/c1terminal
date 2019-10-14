@@ -88,70 +88,67 @@ class AlgoStrategy(gamelib.AlgoCore):
         return cheapest_unit, cost
 
     def basic_strategy(self, game_state):
-        #self.build_first_line_cheapest_wall(game_state)
-        #self.build_basic_attackers(game_state)
         if game_state.turn_number >= 1:
             self.replace_defense(game_state)
-        #self.basic_defense(game_state)
-        #self.advanced_defense(game_state)
-        #self.scrambler_stratgy(game_state)
-        #self.advanced_emp(game_state)
-        #self.spawn_least_damage(game_state)
-        #self.t2_attack(game_state)
-        #self.t2_defense(game_state)
-        if game_state.turn_number > 10 and game_state.enemy_health > game_state.my_health or self.sp:
-            self.special(game_state)
-            self.replace_defense(game_state)
-            self.sp = True
-            return 
 
         if game_state.turn_number == 0:
             self.first_scrambler(game_state)
         else:
-            self.scrambler_stratgy(game_state)
-            self.spawn_least_damage(game_state)
-            if self.bits > 10:
-                self.emp_new(game_state)
-            self.defense(game_state)
+            self.normal_attack(game_state)
 
+        self.normal_defence(game_state)
+        self.normal_encrypt(game_state)
+
+    def normal_defence(self, game_state):
+        destructors_points = [[0, 13], [1, 12]]
+        filters_points = [[3, 12], [4, 11], [5, 10], [6, 9], [7, 8], [8, 7], [9, 6], [10, 5], [11, 4], [12, 3], [13, 2]]    
+        self.build_group_walls(game_state, FILTER, filters_points)    
+        self.build_group_walls(game_state, FILTER, filters_points, True)
+        self.build_group_walls(game_state, DESTRUCTOR, destructors_points)    
+        self.build_group_walls(game_state, DESTRUCTOR, destructors_points, True)
+        
+    def normal_encrypt(self, game_state):
+        teal_destructors_points = [[1, 13], [3, 13]]
+        self.build_group_walls(game_state, DESTRUCTOR, teal_destructors_points)    
+        self.build_group_walls(game_state, DESTRUCTOR, teal_destructors_points, True)
+        yellow_destructors_points = [[4, 12], [5, 12]]
+        self.build_group_walls(game_state, DESTRUCTOR, yellow_destructors_points)    
+        self.build_group_walls(game_state, DESTRUCTOR, yellow_destructors_points, True)
+        yellow_destructors_points = [[4, 13], [6, 11], [7, 10]]
+        self.build_group_walls(game_state, DESTRUCTOR, yellow_destructors_points)    
+        self.build_group_walls(game_state, DESTRUCTOR, yellow_destructors_points, True)
+        if game_state.turn_number > 10:
+            encryptors_points = [[5, 11], [6, 10], [7, 9], [8, 8], [9, 7], [10, 6], [11, 5], [12, 4], [13, 3]]
+            encryptors_points = encryptors_points[::-1]
+            self.build_group_walls(game_state, ENCRYPTOR, encryptors_points) 
+            self.build_group_walls(game_state, ENCRYPTOR, encryptors_points, True)
+
+    def normal_attack(self, game_state):
+        enemy_left = self.detect_enemy_unit(game_state, unit_type=DESTRUCTOR, valid_x=[1, 2, 3, 4], valid_y=[14, 15])
+        enemy_right = self.detect_enemy_unit(game_state, unit_type=DESTRUCTOR, valid_x=[23, 24, 25, 26], valid_y=[14, 15])
+        is_enempy_left_weak = True if enemy_left < enemy_right else False
+        block_my_way = [[2, 12]]
+        self.build_group_walls(game_state, FILTER, block_my_way, is_enempy_left_weak)
+        game_state.attempt_remove([2, 12])
+        game_state.attempt_remove([25, 12])
+        r = random.randint(10, 20)
+        if self.bits > r:
+            if is_enempy_left_weak:
+                self.all_in(game_state, PING, [25, 11])
+            else:
+                self.all_in(game_state, PING, [2, 11])
+        elif self.bits > (r / 3 * 2):
+            if is_enempy_left_weak:
+                game_state.attempt_spawn(EMP, [25, 11], 2)
+                game_state.attempt_spawn(SCRAMBLER, [11, 2])
+            else:
+                game_state.attempt_spawn(EMP, [2, 11], 2)
+                game_state.attempt_spawn(SCRAMBLER, [16, 2])
+        
 
     def first_scrambler(self, game_state):  
-        locations = [[5, 8], [10, 3], [17, 3], [22, 8]]
+        locations = [[10, 3], [17, 3]]
         game_state.attempt_spawn(SCRAMBLER, locations)
-
-    def defense(self, game_state):
-        destructors_points = [[5, 10], [10, 10], [14, 10], [17, 10], [22, 10]]
-        encryptors_points = [[10, 8]]
-        filters_points = [[0, 13], [27, 13], [1, 12], [26, 12], [2, 11], [3, 11], [4, 11], [8, 11], [19, 11], [23, 11], [24, 11], [25, 11], [13, 10]]
-
-        pink_destructors_points = [[5, 11], [22, 11], [5, 10], [10, 10], [14, 10], [17, 10], [22, 10], [8, 9], [19, 9], [8, 8]]
-        pink_encryptors_points = [[10, 8], [11, 8], [17, 8]]
-        pink_filters_points = [[0, 13], [27, 13], [1, 12], [26, 12], [2, 11], [3, 11], [4, 11], [8, 11], [19, 11], [23, 11], [24, 11], [25, 11], [13, 10], [21, 10]]
-        blue_encryptors_points = [[12, 8], [14, 8], [15, 8], [16, 8]]
-        blue_filters_points = [[10, 12], [17, 12], [22, 12], [20, 11], [11, 10]]
-        teal_destructors_points = [[12, 10], [16, 10], [7, 8], [9, 8], [18, 8], [19, 8], [20, 8]]
-        teal_filters_points = [[5, 12], [11, 12], [12, 12], [15, 12], [16, 12], [7, 11], [6, 10], [15, 10]]
-        yellow_encryptors_points = [[18, 13], [9, 12], [13, 12], [14, 12], [11, 6], [12, 6], [14, 6], [15, 6], [11, 5], [12, 5], [14, 5], [15, 5]]
-        orange_encryptors_points = [[11, 4], [12, 4], [14, 4], [15, 4], [12, 3], [14, 3]]
-        red_orange_encryptors_points = [[9, 6], [10, 6], [16, 6], [17, 6]]
-        
-        self.build_group_walls(game_state, FILTER, filters_points)
-        self.build_group_walls(game_state, DESTRUCTOR, destructors_points)
-        self.build_group_walls(game_state, ENCRYPTOR, encryptors_points)
-        
-        self.build_group_walls(game_state, FILTER, pink_filters_points)
-        self.build_group_walls(game_state, DESTRUCTOR, pink_destructors_points)
-        self.build_group_walls(game_state, ENCRYPTOR, pink_encryptors_points)
-
-        self.build_group_walls(game_state, ENCRYPTOR, blue_encryptors_points)
-        self.build_group_walls(game_state, FILTER, blue_filters_points)
-
-        self.build_group_walls(game_state, DESTRUCTOR, teal_destructors_points)
-        self.build_group_walls(game_state, FILTER, teal_filters_points)
-
-        self.build_group_walls(game_state, ENCRYPTOR, yellow_encryptors_points)
-        self.build_group_walls(game_state, ENCRYPTOR, orange_encryptors_points)
-        self.build_group_walls(game_state, ENCRYPTOR, red_orange_encryptors_points)
 
 
     def scrambler_stratgy(self, game_state):
@@ -176,6 +173,8 @@ class AlgoStrategy(gamelib.AlgoCore):
                 if unit.stability <= gamelib.GameUnit(unit.unit_type, game_state.config).stability / 4:
                     game_state.attempt_remove(location)
             else:
+                if (location[0] == 25 or location[0] == 2) and location[1] == 12:
+                    continue
                 self.build_wall(game_state, DESTRUCTOR, location)
 
     def basic_defense(self, game_state):
@@ -196,6 +195,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         self.build_group_walls(game_state, ENCRYPTOR, locations, not reverse)
 
     def t2_attack(self, game_state):
+        if self.detect_enemy_unit(game_state, unit_type=None, valid_x=None, valid_y=[14]) > 10:
+            self.deploy_minions(game_state, EMP, [[2, 11], [25, 11]])    
         rand = random.randint(10, 25)
         if self.bits >= rand:
             self.all_in(game_state, PING)
